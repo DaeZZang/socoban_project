@@ -1,748 +1,1081 @@
-#define _CRT_SECURE_NO_WARNINGS
-
 #include <stdio.h>
+//#include <windows.h>
 #include <stdlib.h>
+#include <termio.h>
 #include <string.h>
-
-#define MAX 30
-#define MAX_COMMAND 10
-#define MAX_RANK 100
-#define STR_MAX 10
-#define STAGE_NUM 5
-#define MAX_LOG 1000
-
-#define UNDO_INIT 5
-
-#define TRUE 1
-#define FALSE 0
-
-//Print Location define
-
-#define HELLO_PRINT_X 10
-#define HELLO_PRINT_Y 2
-
-#define STATUS_PRINT_X 0
-#define STATUS_PRINT_Y (HELLO_PRINT_Y + 2)
-
-#define MAP_PRINT_X 0
-#define MAP_PRINT_Y (STATUS_PRINT_Y + 5)
-
-#define PLAYER_PRINT_X (MAP_PRINT_X + 2 * playerX)
-#define PLAYER_PRINT_Y (MAP_PRINT_Y + playerY)
-
-#define COMMAND_PRINT_X 0
-#define COMMAND_PRINT_Y (mapY + MAP_PRINT_Y + 1)
-
-#define COMMAND_SCAN_X 10
-#define COMMAND_SCAN_Y (mapY + MAP_PRINT_Y + 1)
-
-#define DISHELP_PRINT_X 0
-#define DISHELP_PRINT_Y (COMMAND_PRINT_Y + 2)
-
-#define PROMPT_PRINT_X 0
-#define PROMPT_PRINT_Y (COMMAND_PRINT_Y + 2)
-
-#ifdef _WIN32
-#include <conio.h>
-#define getch() _getch()
-#define getche() _getche()
-#define gets(x) gets_s(x,sizeof(x))
-#elif __unix__
 #include <unistd.h>
-#include <termio.h>
-int getch(void)
-{
-	int c;
-	struct termios oldattr, newattr;
-	tcgetattr(STDIN_FILENO, &oldattr);           // 현재 터미널 설정 읽음
-	newattr = oldattr;
-	newattr.c_lflag &= ~(ICANON | ECHO);         // CANONICAL과 ECHO 끔
-	newattr.c_cc[VMIN] = 1;                      // 최소 입력 문자 수를 1로 설정
-	newattr.c_cc[VTIME] = 0;                     // 최소 읽기 대기 시간을 0으로 설정
-	tcsetattr(STDIN_FILENO, TCSANOW, &newattr);  // 터미널에 설정 입력
-	c = getchar();                               // 키보드 입력 읽음
-	tcsetattr(STDIN_FILENO, TCSANOW, &oldattr);  // 원래의 설정으로 복구
-	return c;
-}
-int getche(void)
-{
-	int c;
-	struct termios oldattr, newattr;
-	tcgetattr(STDIN_FILENO, &oldattr);           // 현재 터미널 설정 읽음
-	newattr = oldattr;
-	newattr.c_lflag &= ~(ICANON);				 // CANONICAL 끔
-	newattr.c_cc[VMIN] = 1;                      // 최소 입력 문자 수를 1로 설정
-	newattr.c_cc[VTIME] = 0;                     // 최소 읽기 대기 시간을 0으로 설정
-	tcsetattr(STDIN_FILENO, TCSANOW, &newattr);  // 터미널에 설정 입력
-	c = getchar();                               // 키보드 입력 읽음
-	tcsetattr(STDIN_FILENO, TCSANOW, &oldattr);  // 원래의 설정으로 복구
-	return c;
-}
-#elif __linux__
-#include <unistd.h>
-#include <termio.h>
-int getch(void)
-{
-	int c;
-	struct termios oldattr, newattr;
-	tcgetattr(STDIN_FILENO, &oldattr);           // 현재 터미널 설정 읽음
-	newattr = oldattr;
-	newattr.c_lflag &= ~(ICANON | ECHO);         // CANONICAL과 ECHO 끔
-	newattr.c_cc[VMIN] = 1;                      // 최소 입력 문자 수를 1로 설정
-	newattr.c_cc[VTIME] = 0;                     // 최소 읽기 대기 시간을 0으로 설정
-	tcsetattr(STDIN_FILENO, TCSANOW, &newattr);  // 터미널에 설정 입력
-	c = getchar();                               // 키보드 입력 읽음
-	tcsetattr(STDIN_FILENO, TCSANOW, &oldattr);  // 원래의 설정으로 복구
-	return c;
-}
-int getche(void)
-{
-	int c;
-	struct termios oldattr, newattr;
-	tcgetattr(STDIN_FILENO, &oldattr);           // 현재 터미널 설정 읽음
-	newattr = oldattr;
-	newattr.c_lflag &= ~(ICANON);				 // CANONICAL 끔
-	newattr.c_cc[VMIN] = 1;                      // 최소 입력 문자 수를 1로 설정
-	newattr.c_cc[VTIME] = 0;                     // 최소 읽기 대기 시간을 0으로 설정
-	tcsetattr(STDIN_FILENO, TCSANOW, &newattr);  // 터미널에 설정 입력
-	c = getchar();                               // 키보드 입력 읽음
-	tcsetattr(STDIN_FILENO, TCSANOW, &oldattr);  // 원래의 설정으로 복구
-	return c;
-}
-#endif
 
-void gotoxy(int x, int y)
-{
-	printf("\033[%dd\033[%dG", y, x + 1);
-}
-void clear(void)
-{
-#ifdef __unix__
-	system("clear");
-#elif __linux__
-	printf("\033[H\033[J");
-#elif _WIN32
-	printf("\033[H\033[J");
-#endif
-}
-void clearBuf(void)
-{
-#ifdef _WIN32
-	rewind(stdin);
-#elif __unix__
-	fpurge(stdin);
-#elif __linux__
-	fpurge(stdin);
-#endif
-}
-
-char name[STR_MAX];
-int record[STAGE_NUM];
-
-char logger[STAGE_NUM][MAX_LOG];
-
-int stage;
-int mapX, mapY;
-int playerX, playerY;
-
-char map[MAX][MAX];
-char mapGoal[MAX][2];
-int mapGoalCnt = 0;
-
-int rankArr[MAX_RANK][STAGE_NUM + 1] = { 0 };
-int rankCnt;
-char nameArr[MAX_RANK][STR_MAX];
-
-int remainUndo = UNDO_INIT;
-
-void nameInput(void);
-int mapMaker(int stage);
-int checkBoxStorage(void);
-
-void statPrint(void);
-int printNewStage(int stage);
-void refresh(int stage);
-
-void goalPrinter(void);
-void mapPrinter(void);
-void playerFinder(void);
-void goalFinder(void);
-
-void moveplayer(int xplus, int yplus, int reload);
-void movePlayerBox(int xplus, int yplus, int reload);
-int move(int xplus, int yplus, int reload);
-void loadMove(int repeat, int reload);
-
-int success(int stage);
-
-void inputRank(void);
-void sort(int sortStage);
-void swapRankArrAdd(int a, int b);
+int mapx=23,mapy=11;
+char test[13][25];
+int stage=1; // stage number
+int n = 0, m = 0;	//player location
+char name[11] = {0};
+//char utest[5][13][25];
+//char unm[5][5];
+int asdf=-1;
+int ucnt=5;
+//int undo(void);
+char key_list[5] = {0};
+int tmp2 = 0;
+int undo_cnt = 5;
+int map_record[10][25][25];
+int move = 0;
+int box_cnt = 0, storage_cnt = 0;
+int move_stg1, move_stg2, move_stg3, move_stg4, move_stg5;
 
 
-int main(void)
-{
-	FILE* save;
-	FILE* rank;
 
-	printf("Start. . . .\n");
-	nameInput();
-	clearBuf();
+int map(int);
+int getch(void);
+int name_recieve(void);
+void save(int);
+int load();
+//void saverank();
+int show_ranking(int);
+int ranking_save(void);
+void map_check(void);
+int rank_stg1(void);
+int rank_stg2(void);
+int rank_stg3(void);
+int rank_stg4(void);
+int rank_stg5(void);
+void display_help(void);
+
+
+int main() {
 	
-	for(stage = 1;stage <= STAGE_NUM;stage++)
-	{
-		if (!printNewStage(stage))	return 0;
-		refresh(stage);
 
-		char run = TRUE;
-		char disHelp = FALSE;
-
-		while (run)
-		{
-			int command;
-
-			goalPrinter();
-			gotoxy(COMMAND_SCAN_X, COMMAND_SCAN_Y);
-
-			command = getche();
-			clearBuf();
-
-#ifdef _WIN32
-			//Arrow Control
-#define KEY_UP 72
-#define KEY_LEFT 75
-#define KEY_RIGHT 77
-#define KEY_DOWN 80
-			if (command == 224)
-			{
-				command = getch();
-				switch (command)
-				{
-				case KEY_UP:
-					command = 'k';
-					break;
-				case KEY_LEFT:
-					command = 'h';
-					break;
-				case KEY_RIGHT:
-					command = 'l';
-					break;
-				case KEY_DOWN:
-					command = 'j';
-					break;
-				}
-			}
-#endif
-
-			int topNum = 0;
-
-			char char_topNum[MAX_COMMAND] = { 0 };
-			if (command == 't' || command == 'T')
-			{
-				//printf("%c", command);
-				gets(char_topNum);
-				topNum = atoi(char_topNum);
-
-				gotoxy(COMMAND_SCAN_X, COMMAND_SCAN_Y);
-				for (int i = 0; i < MAX_COMMAND; i++)	printf(" ");
-			}
-			
-			switch (command)
-			{
-				//left
-			case 'h':	case 'H':
-				if (move(-1, 0, 0))	logger[stage - 1][record[stage - 1] - 1] = 'h';
-				break;
+	name_recieve();
+	start: // stage change
+    map(stage);
+	for(int x = 0; x <= 5; x++) {	
+			for(int i = 0;i < mapy;i++) {
+			        for(int j = 0;j < mapx;j++){
+					map_record[x][i][j] = test[i][j];
 					
-				//down
-			case 'j':	case 'J':
-				if (move(0, 1, 0))	logger[stage - 1][record[stage - 1] - 1] = 'j';
-				break;
-
-				//up
-			case 'k':	case 'K':
-				if (move(0, -1, 0))	logger[stage - 1][record[stage - 1] - 1] = 'k';
-				break;
-
-				//right
-			case 'l':	case 'L':
-				if (move(1, 0, 0))	logger[stage - 1][record[stage - 1] - 1] = 'l';
-				break;
-
-			case 'u':	case 'U':	//undo
-				if (remainUndo > 0 && record[stage - 1] > 0)
-				{
-					remainUndo--;
-					if (!printNewStage(stage))	return 0;
-					loadMove(record[stage - 1] - 1, 1);
-				}
-				else if(remainUndo <= 0)
-				{
-					refresh(stage);gotoxy(PROMPT_PRINT_X, PROMPT_PRINT_Y);
-					printf("No more Undo Chance");
-				}
-				else if (record[stage - 1] <= 0)
-				{
-					refresh(stage);gotoxy(PROMPT_PRINT_X, PROMPT_PRINT_Y);
-					printf("Nothing to Undo");
-				}
-
-				break;
-
-			case 'r':	case 'R':	//replay 현재 맵을 다시시작 (움직임 횟수 유지)
-				if (!printNewStage(stage))	return 0;
-				break;
-
-			case 'n':	case 'N':	//new 1번째 맵부터 다시시작 (움직임 횟수 삭제)
-				for (int i = 0; i < STAGE_NUM; i++)	record[i] = 0;
-				stage = 1;
-				if (!printNewStage(stage))	return 0;
-				break;
-
-			case 'e':	case 'E':	//exit 게임 종료
-			case 's':	case 'S':	//save 현재 상태 저장
-
-				save = fopen("sokoban.txt", "w");
-
-				//Line 1: name stage remainUndo
-				//Line 2: Stage Records
-				//Line 3~: Stage Logs
-
-				fprintf(save, "%s %d %d\n", name, stage, remainUndo);
-				for (int i = 0; i < STAGE_NUM;i++)	fprintf(save, "%d ", record[i]);
-				for (int i = 0; i < STAGE_NUM; i++)
-				{
-					for (int j = 0; j < record[i]; j++)	fprintf(save, "%c", logger[i][j]);
-					fprintf(save, "\n");
-				}
-
-				fclose(save);
-
-				refresh(stage);gotoxy(PROMPT_PRINT_X, PROMPT_PRINT_Y);
-				printf("Saved");
-
-				if (command == 'e' || command == 'E')
-				{
-					gotoxy(PROMPT_PRINT_X, PROMPT_PRINT_Y + 1);
-					printf("SEE YOU %s. . . . \n", name);
-					return 0;
-				}
-				break;
-
-			case 'f':	case 'F':	//save파일 시점부터 게임진행
-
-				save = fopen("sokoban.txt", "r");
-				//Line 1: name stage remainUndo
-				//Line 2: Stage Records
-				//Line 3~: Stage Logs
-
-				fscanf(save, "%s %d %d", name, &stage, &remainUndo);
-				for (int i = 0; i < STAGE_NUM; i++)	fscanf(save, "%d", &record[i]);
-				for (int i = 0; i < STAGE_NUM; i++)	fscanf(save, "%s", logger[i]);
-				fclose(save);
 					
-				printNewStage(stage);
-				loadMove(record[stage - 1], 1);
-
-				break;
-
-			case 'd':	case 'D':	//display help
-				if (disHelp == FALSE)
-				{
-					disHelp = TRUE;
-					refresh(stage);
-
-					/*gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 0);	printf("%10s : 왼쪽", "h");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 1);	printf("%10s : 아래쪽", "j");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 2);	printf("%10s : 위쪽", "k");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 3);	printf("%10s : 오른쪽", "l");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 4);	printf("%10s : Undo (최대 5번)", "u");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 5);	printf("%10s : Replay 현재 맵을 처음부터 다시 시작 (움직임 횟수는 유지)", "r");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 6);	printf("%10s : New 첫번째 맵부터 다시 시작 (움직임 횟수 기록 삭제)", "n");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 7);	printf("%10s : Exit 저장 & 게임 종료", "e");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 8);	printf("%10s : Save 현재 상태 파일에 저장", "s");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 9);	printf("%10s : File Load 저장된 파일의 시점부터 다시 시작", "f");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 10);	printf("%10s : 명령 내용 보여줌", "d");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 11);	printf("%10s : 게임 순위 보여줌", "t");*/
-
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 0);	printf("%10s : left", "h");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 1);	printf("%10s : down", "j");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 2);	printf("%10s : up", "k");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 3);	printf("%10s : right", "l");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 4);	printf("%10s : Undo", "u");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 5);	printf("%10s : Replay", "r");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 6);	printf("%10s : New", "n");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 7);	printf("%10s : Exit", "e");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 8);	printf("%10s : Save", "s");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 9);	printf("%10s : File Load", "f");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 10);	printf("%10s : Display Help", "d");
-					gotoxy(DISHELP_PRINT_X, DISHELP_PRINT_Y + 11);	printf("%10s : Top Rank", "t");
 				}
-				else
-				{
-					disHelp = FALSE;
-					refresh(stage);
-				}
-				break;
-
-			case 't':	case 'T':	//top 게임 순위 보여줌
-				//do something
-				rankCnt = 0;
-				rank = fopen("rank.txt", "r");
-				if (rank == NULL)
-				{
-					refresh(stage);gotoxy(PROMPT_PRINT_X, PROMPT_PRINT_Y);
-					printf("rank.txt not found");
-				}
-				int sum = 0;
-				while (!feof(rank))
-				{
-					sum = 0;
-					fscanf(rank, "%s", nameArr[rankCnt]);
-					for (int i = 1; i <= STAGE_NUM; i++)
-					{
-						fscanf(rank, "%d", &rankArr[rankCnt][i]);
-						sum += rankArr[rankCnt][i];
-					}
-					rankArr[rankCnt++][0] = sum;
-					if (sum == 0)	rankCnt--;
-				}
-
-				if (0 <= topNum && topNum <= STAGE_NUM)
-				{
-					sort(topNum);
-					refresh(stage);gotoxy(PROMPT_PRINT_X, PROMPT_PRINT_Y);
-					for (int i = 0; i < rankCnt; i++)	printf("%3d %10s %5dpoint\n", i + 1, nameArr[i], rankArr[i][topNum]);
-				}
-				else
-				{
-					refresh(stage);gotoxy(PROMPT_PRINT_X, PROMPT_PRINT_Y);
-					printf("STAGE unavailable");
-				}
-
-				break;
-
-			default:
-				refresh(stage);gotoxy(PROMPT_PRINT_X, PROMPT_PRINT_Y);
-				printf("Command unavailable");
-				break;
 			}
-			statPrint();
-
-			if (success(stage))	run = FALSE;
 		}
-		clear();
-	}
-	inputRank();
 
-	printf("SEE YOU %s. . . . \n", name);
-	
+	int asd=0;
+	int n2=0, m2=0, n3=0, m3=0;		//2:forward of player	3: 2blocks forward of player
+	char a;
+	int tmp=0;
+	int cnt=0;	//clear condition
+	int stopper;
+	int tmp2_r[10] = {0};
+		map_check();
+		while (1) {
+		nothing:
+			system("clear");
+			printf("Hello %s\n", name);
+		   printf("stage %d\n",stage);
+			printf("move : %d\n", move);
+			//printf("n %d m %d n2 %d m2 %d n3 %d m3 %d\n", n, m, n2, m2, n3, m3);
+			printf("undo available : %d\n", undo_cnt);
+
+			for (int i = 0; i < mapy; i++) {
+				for (int j = 0; j < mapx; j++) {
+					switch (test[i][j]) {
+					case 0:
+						printf(" ");
+						break;
+					case 1:
+						printf("#");
+						break;
+					case 2:
+						printf("$");
+						cnt++;
+						break;
+					case 3:
+						printf("@");
+						n = i;
+						m = j;
+						break;
+					case 4:
+						printf("O");
+						break;
+					case 5:
+						printf("X");
+						break;
+					}
+				}
+				printf("\n");
+			}
+			//printing map
+
+			if (cnt == 0) {
+				break;
+			}
+
+
+			a = getch();
+			switch (a) {
+            case 'u'://undo ddddddddddd
+		if (undo_cnt == 0) {
+		    	goto nothing;
+		} else {
+		move++;
+		tmp2 = tmp2_r[1];
+		for(int b = 0; b < 5; b++) {
+			tmp2_r[b] = tmp2_r[b+1];
+		}
+
+		for(int i = 0;i < mapy;i++) {
+		        for(int j = 0;j < mapx;j++){
+				test[i][j] = map_record[1][i][j];
+			}
+		}
+		for(int x = 0; x <= 5; x++) {	
+			for(int i = 0;i < mapy;i++) {
+			        for(int j = 0;j < mapx;j++){
+					map_record[x][i][j] = map_record[x+1][i][j];
+					
+					
+				}
+			}
+		}
+		undo_cnt--;
+		goto nothing;
+                	}
+		break;
+            case 'r'://悟暹멸덛썬썬珹
+                    map(stage);
+                    n2=0, m2=0, n3=0, m3=0, tmp2 = 0;
+		    for(int x = 0; x <= 5; x++) {	
+			for(int i = 0;i < mapy;i++) {
+			        for(int j = 0;j < mapx;j++){
+					map_record[x][i][j] = test[i][j];
+				}
+			}
+		    }
+
+		    undo_cnt = 5;
+                    continue;
+                break;
+            case 'n'://덛썬썬珹
+                    stage=1;
+                    map(stage);
+                    n2=0, m2=0, n3=0, m3=0, tmp2 = 0;
+		    for(int x = 0; x <= 5; x++) {	
+			for(int i = 0;i < mapy;i++) {
+			        for(int j = 0;j < mapx;j++){
+					map_record[x][i][j] = test[i][j];
+				}
+			}
+		    }
+
+		    undo_cnt = 5;
+                    move=0;
+                    continue;
+                break;
+            case 'e'://瀟료 ddddddddddd
+                save(move);
+		printf("System is shutting down...\n");
+		sleep(1);
+		printf("(3)...\n");
+		sleep(1);
+		printf("(2)...\n");
+		sleep(1);
+		printf("(1)...\n");
+		sleep(1);
+              //  saverank();
+                return 0;
+                break;
+            case 's'://세閃브 ddddddddddd
+                save(move);
+            //    saverank();
+	    	continue;
+                break;
+            case 'f'://룽드 ddddddddddd
+                load();
+                n2=0, m2=0, n3=0, m3=0;
+                asd=1;
+		continue;
+                break;
+            case 'd'://명룬내용 ddddddddddd
+	    	display_help();
+		stopper = getch();
+		continue;
+                break;
+            case 't'://순鋤 ddddddddddd
+	    	//system("clear");
+		//show_ranking(6);
+		stopper = getchar();
+                	if (stopper == '\n') {
+				system("clear");
+				show_ranking(6);
+				stopper = getch();
+			}
+			if (stopper == '1') {
+				stopper = getch();
+				system("clear");
+				show_ranking(1);
+				stopper = getch();
+			}
+			if (stopper == '2') {
+				stopper = getch();
+				system("clear");
+				show_ranking(2);
+				stopper = getch();
+			}
+			if (stopper == '3') {
+				stopper = getch();
+				system("clear");
+				show_ranking(3);
+				stopper = getch();
+			}
+			if (stopper == '4') {
+				stopper = getch();
+				system("clear");
+				show_ranking(4);
+				stopper = getch();
+			}
+			if (stopper == '5') {
+				stopper = getch();
+				system("clear");
+				show_ranking(5);
+				stopper = getch();
+			}
+			continue;
+			break;
+			case 'h':	//left
+				n2 = n;
+				m2 = m - 1;
+				n3 = n;
+				m3 = m - 2;
+				move++;
+				break;
+
+
+
+			case 'l':	//right
+				n2 = n;
+				m2 = m + 1;
+				n3 = n;
+				m3 = m + 2;
+				move++;
+				break;
+
+
+
+			case 'j':	//down
+				n2 = n + 1;
+				m2 = m;
+				n3 = n + 2;
+				m3 = m;
+				move++;
+				break;
+
+
+
+			case 'k':	//up
+				n2 = n - 1;
+				m2 = m;
+				n3 = n - 2;
+				m3 = m;
+				move++;
+				break;
+
+			case '8':
+				if (stage>1) {
+					tmp2 = 0;
+					stage--;
+				}
+				goto start;
+				break;
+
+			case '9' :
+				if (stage<5) {
+					tmp2 = 0;
+					stage++;
+				}
+				goto start;
+				break;
+			
+
+			default :
+				goto nothing;
+				break;
+			}
+			//move
+            //if(asd==1){}else{
+                    asd=0;
+			//if (undo_cnt < 5) {
+			//	undo_cnt++;
+			//}
+			for (int a = 5; a >= 0; a--) {
+				tmp2_r[a] = tmp2_r[a-1];
+			}
+			tmp2_r[0] = tmp2; 
+			tmp = test[n2][m2];
+			switch (tmp) {
+			case 0:
+				if (tmp2 == 0) {
+					test[n2][m2] = 3;
+					test[n][m] = 0;
+				}
+				else {
+					test[n2][m2] = 3;
+					test[n][m] = 4;
+					tmp2 = 0;
+				}
+				n = n2;
+				m = m2;
+
+				break;
+			case 1:
+				break;
+			case 2:
+				if (test[n3][m3] == 1 || test[n3][m3] == 2 || test[n3][m3] == 5) {
+					break;
+				}
+				if (test[n3][m3] == 0) {
+					if (tmp2 == 0) {
+						test[n3][m3] = 2;
+						test[n2][m2] = 3;
+						test[n][m] = 0;
+					}
+					else {
+						test[n3][m3] = 2;
+						test[n2][m2] = 3;
+						test[n][m] = 4;
+						tmp2 = 0;
+					}
+				}
+				if (test[n3][m3] == 4) {
+					if (tmp2 == 0) {
+						test[n3][m3] = 5;
+						test[n2][m2] = 3;
+						test[n][m] = 0;
+					}
+					else {
+						test[n3][m3] = 5;
+						test[n2][m2] = 3;
+						test[n][m] = 4;
+						tmp2 = 0;
+					}
+				}
+				n = n2;
+				m = m2;
+
+				break;
+			case 4:
+			    if (tmp2 == 0) {
+				    test[n2][m2] = 3;
+				    test[n][m] = 0;
+				} else {
+				    test[n2][m2] = 3;
+				    test[n][m] = 4;
+				}
+				tmp2 = 1;
+				n = n2;
+				m = m2;
+
+				break;
+			case 5:
+				if (test[n3][m3] == 1 || test[n3][m3] == 2 || test[n3][m3] == 5) {
+					break;
+				}
+				if (test[n3][m3] == 0) {
+					if (tmp2 == 0) {
+						test[n3][m3] = 2;
+						test[n2][m2] = 3;
+						test[n][m] = 0;
+					}
+					else {
+						test[n3][m3] = 2;
+						test[n2][m2] = 3;
+						test[n][m] = 4;
+					}
+				}
+				if (test[n3][m3] == 4) {
+					if (tmp2 == 0) {
+						test[n3][m3] = 5;
+						test[n2][m2] = 3;
+						test[n][m] = 0;
+					}
+					else {
+						test[n3][m3] = 5;
+						test[n2][m2] = 3;
+						test[n][m] = 4;
+					}
+				}
+				tmp2 = 1;
+				n = n2;
+				m = m2;
+
+			//}
+		}
+		cnt = 0;
+			
+		for(int x = 5; x >= 0; x--) {	
+			for(int i = 0;i < mapy;i++) {
+			        for(int j = 0;j < mapx;j++){
+					if (x == 0) {
+						map_record[x][i][j] = test[i][j];
+					} else {
+						map_record[x][i][j] = map_record[x-1][i][j];
+					}
+					
+				}
+			}
+		}
+		}
+	switch (stage) {
+		case 1:
+			move_stg1 = move;
+			rank_stg1();
+			break;
+		case 2:
+			move_stg2 = move - move_stg1;
+			rank_stg2();
+			break;
+		case 3:
+			move_stg3 = move - move_stg1 - move_stg2;
+			rank_stg3();
+			break;
+
+		case 4:
+			move_stg4 = move - move_stg1 - move_stg2 - move_stg3;
+			rank_stg4();
+			break;
+
+		case 5:
+			move_stg4 = move - move_stg1 - move_stg2 - move_stg3 - move_stg4;
+			rank_stg5();
+			break;
+	}
+    stage++;
+    system("clear");
+    for(int i=0;i<13;i++){
+        for(int j=0; j<25; j++)
+            test[i][j]=0;}// 스테이지 넘어갈 때 맵 초기화
+    if (stage < 6)
+        goto start;
+
+	printf("clear! Congratulations!!!!!\n");
+    	ranking_save();
+	show_ranking(6);
+	printf("Press any key\n");
+	stopper = getch();
 	return 0;
 }
 
-void nameInput(void)
+
+
+int map(int stage) 
 {
-	printf("input name : ");
+    char data;
+     FILE *in;
+    switch (stage){
+		case 1:
+        	in = fopen("map1.TXT", "r");
+			mapx=24,mapy=11;
+			break;
+			
+     	case 2:
+        	in = fopen("map2.TXT", "r");
+        	mapx=16,mapy=10;
+        	break;
+
+      case 3:
+        	in = fopen("map3.TXT", "r");
+        	mapx=19,mapy=11;
+        	break;
+
+		case 4:
+
+			in = fopen("map4.TXT", "r");
+        		mapx=24,mapy=13;
+        		break;
+
+		case 5:
+
+ 			in = fopen("map5.TXT", "r");
+        		mapx=19,mapy=13;
+        		break;
+	}
+    for(int i = 0;i < mapy;i++) {
+        for(int j = 0;j < mapx;j++){
+            fscanf(in, "%c", &data);
+            switch(data){
+            case 35:
+                test[i][j]=1;
+                break;
+
+            case 36:
+                test[i][j]=2;
+		box_cnt++;
+                break;
+
+            case 46:
+                test[i][j]=0;
+                break;
+
+            case 64:
+                test[i][j]=3;
+				n = i;
+				m = j;
+                break;
+
+            case 79:
+                test[i][j]=4;
+		storage_cnt++;
+                break;
+
+            case 88:
+                test[i][j]=5;
+		box_cnt++;
+		storage_cnt++;
+                break;
+			}
+		}
+   }
+}
+
+void map_check(void) {
+	if (box_cnt != storage_cnt) {
+		system("clear");
+		printf("Your map file is cracked. Please check your map file.\n");
+		sleep(1);
+		abort();
+	}	
+	return;
+}
+/*
+void saverank(){
+FILE *fp;
+fp=fopen("ranking.txt","a");
+fclose(fp);
+fp=fopen("ranking.txt","r");
+fscanf(fp,"%d %d");
+
+
+}*/
+
+int load(){
+FILE *fp;
+int mo;
+fp = fopen("sokoban.txt","r");
+int aa,bb;
+fscanf(fp,"%d %d %d %d %d %s",&stage,&move,&m,&n, &undo_cnt, name);
+
+    switch (stage){
+		case 1:
+			mapx=24,mapy=11;
+			break;
+
+     	case 2:
+        	mapx=16,mapy=10;
+        	break;
+
+      case 3:
+        	mapx=19,mapy=11;
+        	break;
+
+		case 4:
+			mapx = 24, mapy = 13;
+			break;
+
+		case 5:
+			mapx = 19, mapy = 13;
+ 			break;
+	}
+
+    for(int i = 0;i < mapy;i++) {
+        for(int j = 0;j < mapx;j++){
+            fscanf(fp,"%c ",&test[i][j]);
+		}
+   }
+
+for(int x = 0; x < 10; x++) {
+	for(int i = 0; i < mapy; i++) {
+		for(int j = 0; j < mapx; j++) {
+			fscanf(fp,"%c ", &map_record[x][i][j]);
+		}
+	}
+}
+
+   //m=aa;
+   //n=bb;  
+fclose(fp);
+
+return 0;	
+}
+
+void save(int a){
+FILE * fp;
+fp = fopen("sokoban.txt","w");
+fprintf(fp,"%d %d %d %d %d %s",stage, move,m,n, undo_cnt, name);
+
+for(int i = 0;i < mapy;i++) {
+        for(int j = 0;j < mapx;j++){
+            fprintf(fp,"%c ",test[i][j]);
+		}
+		fprintf(fp," ");
+   }
+
+for(int x = 0; x < 10; x++) {
+	for(int i = 0; i < mapy; i++) {
+		for(int j = 0; j < mapx; j++) {
+			fprintf(fp, "%c ", map_record[x][i][j]);
+		}
+		fprintf(fp, " ");
+	}
+}
+fclose(fp);
+}
+
+
+int getch(void) {
+	int ch;
+
+	struct termios buf;
+	struct termios save;
+
+	tcgetattr(0, &save);
+	buf = save;
+
+	buf.c_lflag &= ~(ICANON | ECHO);
+	buf.c_cc[VMIN] = 1;
+	buf.c_cc[VTIME] = 0;
+
+	tcsetattr(0, TCSAFLUSH, &buf);
+
+	ch = getchar();
+	tcsetattr(0, TCSAFLUSH, &save);
+
+	return ch;
+}
+
+
+int name_recieve(void) {
+	printf("Start...\n");
+	printf("Input Your Name : ");
 	scanf("%s", name);
-	rewind(stdin);
-}
-int mapMaker(int stage)
-{
-	FILE* in = NULL;
-	char tmpStr[STR_MAX] = { 0 };
-
-	sprintf(tmpStr, "map%d.txt", stage);
-	in = fopen(tmpStr, "r");
-
-	if (in != NULL)
-	{
-		mapX = 0;
-		mapY = 0;
-		while (!feof(in))
-		{
-			fgets(map[mapY], MAX, in);
-			if(map[mapY][strlen(map[mapY]) - 1] == '\n')	map[mapY][strlen(map[mapY]) - 1] = '\0';
-			mapY++;
-		}
-		mapX = strlen(map[0]);
-#ifdef __unix__
-		mapX--;
-#endif
-
-		fclose(in);
-		return 1;
+	while (strlen(name) > 10) {
+		printf("Set Your Name Within 10 Alphabets!\n");
+		printf("Input Your Name : ");
+		scanf("%s", name);
 	}
-	else
-	{
-		printf("FILE LOAD FAIL! \nFILE NAME SHOuLD BE map""NUM"".txt\n");
-		printf("TERMINATING PROGRAM\n");
-		return 0;
+	system("clear");
+	return 0;
+}
+
+
+
+int ranking_save(void) {
+	int r_score, line = 0, tmp = 0;
+	char c, r_name[11];
+	FILE *rank_f, *rank_n, *rank_l;
+	rank_n = fopen("./ranking/ranking_n.txt", "w");
+	rank_f = fopen("./ranking/ranking.txt", "r");
+	rank_l = fopen("./ranking/ranking.txt", "r");
+
+	while ((c = getc(rank_l)) != EOF) {
+		if (c == '\n')
+			line ++;
 	}
-}
+	fclose(rank_l);
 
-int checkBoxStorage(void)
-{
-	int cntBox = 0, cntStorage = 0;
-	for (int i = 0; i < mapY; i++)
-	{
-		for (int j = 0; j < mapX; j++)
-		{
-			if (map[i][j] == '$')	cntBox++;
-			else if (map[i][j] == 'O')	cntStorage++;
-		}
-	}
-	if (cntBox != cntStorage)	return 0;
-	else return 1;
-}
-void statPrint(void)
-{
-	gotoxy(STATUS_PRINT_X, STATUS_PRINT_Y);
-	printf("%7s: %4d", "STAGE", stage);
-	gotoxy(STATUS_PRINT_X, STATUS_PRINT_Y + 1);
-	printf("%7s: % 4d", "UNDO", remainUndo);
-	gotoxy(STATUS_PRINT_X, STATUS_PRINT_Y + 2);
-	printf("%7s: % 4d", "RECORD", record[stage - 1]);
-}
-int printNewStage(int stage)
-{
-	clear();
-	if (!mapMaker(stage))	return 0;
-	gotoxy(HELLO_PRINT_X, HELLO_PRINT_Y);
-	printf("\tHello %s", name);
-	statPrint();
-
-	if (!checkBoxStorage())
-	{
-		printf("\n\nbox and goal num diff. Terminating Program\n");
-		return 0;
-	}
-
-	playerFinder();
-	goalFinder();
-	mapPrinter();
-
-	gotoxy(COMMAND_PRINT_X, COMMAND_PRINT_Y);
-	printf("(Command) ");
-
-	return 1;
-}
-void refresh(int stage)
-{
-	clear();
-	gotoxy(HELLO_PRINT_X, HELLO_PRINT_Y);
-	printf("\tHello %s", name);
-	statPrint();
-
-	mapPrinter();
-
-	gotoxy(COMMAND_PRINT_X, COMMAND_PRINT_Y);
-	printf("(Command) ");
-}
-void goalPrinter(void)
-{
-	for (int i = 0; i < mapGoalCnt; i++)
-	{
-		if (map[mapGoal[i][1]][mapGoal[i][0]] != '@' && map[mapGoal[i][1]][mapGoal[i][0]] != '$')
-		{
-			gotoxy(MAP_PRINT_X + 2 * mapGoal[i][0], MAP_PRINT_Y + mapGoal[i][1]);
-			printf("O");
-		}
-	}
-}
-void mapPrinter(void)
-{
-	gotoxy(MAP_PRINT_X, MAP_PRINT_Y);
-
-	for (int i = 0; i < mapY; i++)
-	{
-		for (int j = 0; j < mapX; j++)
-		{
-			if (map[i][j] == '.')	printf("  ");
-			else printf("%c ", map[i][j]);
-		}
-		printf("\n");
-	}
-	goalPrinter();
-}
-void playerFinder(void)
-{
-	for (int i = 0; i < mapY; i++)
-	{
-		for (int j = 0; j < mapX; j++)
-		{
-			if (map[i][j] == '@')
-			{
-				playerY = i;
-				playerX = j;
-				return;
+	for(int r = 1; r <= line; r++) {
+		fscanf(rank_f, "%s %d", r_name, &r_score);
+		if (r_score < move) {
+			fprintf(rank_n, "%s %d\n", r_name, r_score);
+			tmp = r_score;
+		} else {
+			if (tmp <= move && move < r_score) {
+				fprintf(rank_n, "%s %d\n", name, move);
+				fprintf(rank_n, "%s %d\n", r_name, r_score);
+				tmp = r_score;
+			} else {
+				fprintf(rank_n, "%s %d\n", r_name, r_score);
+				tmp = r_score;
 			}
 		}
+		if (r == line && tmp < move) {
+			fprintf(rank_n, "%s %d\n", name, move);
+		}
 	}
+	if (tmp == 0) {
+		fprintf(rank_n, "%s %d\n", name, move);
+	}
+	fclose(rank_f);
+	fclose(rank_n);
+	
+	system("rm ./ranking/ranking.txt");
+	system("mv ./ranking/ranking_n.txt ./ranking/ranking.txt");
+	return 0;
 }
-void goalFinder(void)
-{
-	mapGoalCnt = 0;
-	for (int i = 0; i < mapX; i++)
-	{
-		for (int j = 0; j < mapY; j++)
-		{
-			if (map[j][i] == 'O')
-			{
-				mapGoal[mapGoalCnt][0] = i;
-				mapGoal[mapGoalCnt][1] = j;
-				mapGoalCnt++;
+
+
+
+
+int show_ranking(int n) {
+	int rank_num = 5;
+	char c;
+	char r_name[11];
+	int r_score; 
+	char temp[10];
+	int line = 0, count = 1;
+	FILE *rank_f, *rank_ft;
+
+	switch (n) {
+		case 6:
+			rank_f = fopen("./ranking/ranking.txt", "r");
+			rank_ft = fopen("./ranking/ranking.txt", "r");
+			printf("RANKING : total\n");
+			while((c = getc(rank_ft)) != EOF) {
+				if (c=='\n') {
+					line++;
+				}
+			}
+			if (line < 5)
+				rank_num = line;
+			for(int i = 0; i < rank_num; i++) {
+				printf("%2d. ", count);
+				fscanf(rank_f, "%s %d", r_name, &r_score);	
+				printf("%-10s       ---------------- %10d\n", r_name, r_score);
+				count++;
+			}
+			break;
+		case 1 :
+			rank_f = fopen("./ranking/ranking_stg1.txt", "r");
+			rank_ft = fopen("./ranking/ranking_stg1.txt", "r");
+			printf("RANKING : stage 1\n");
+			while((c = getc(rank_ft)) != EOF) {
+				if (c=='\n') {
+					line++;
+				}
+			}
+			if (line < 5)
+				rank_num = line;
+
+			for(int i = 0; i < rank_num; i++) {
+				printf("%2d. ", count);
+				fscanf(rank_f, "%s %d", r_name, &r_score);	
+				printf("%-10s       ---------------- %10d\n", r_name, r_score);
+				count++;
+			}
+			break;
+		case 2:
+			rank_f = fopen("./ranking/ranking_stg2.txt", "r");
+			rank_ft = fopen("./ranking/ranking_stg2.txt", "r");
+			printf("RANKING : stage 2\n");
+			while((c = getc(rank_ft)) != EOF) {
+				if (c=='\n') {
+					line++;
+				}
+			}
+			if (line < 5)
+				rank_num = line;
+
+			for(int i = 0; i < rank_num; i++) {
+				printf("%2d. ", count);
+				fscanf(rank_f, "%s %d", r_name, &r_score);	
+				printf("%-10s       ---------------- %10d\n", r_name, r_score);
+				count++;
+			}
+			break;
+		case 3:
+			rank_f = fopen("./ranking/ranking_stg3.txt", "r");
+			rank_ft = fopen("./ranking/ranking_stg3.txt", "r");
+			printf("RANKING : stage 3\n");
+			while((c = getc(rank_ft)) != EOF) {
+				if (c=='\n') {
+					line++;
+				}
+			}
+			if (line < 5)
+				rank_num = line;
+
+			for(int i = 0; i < rank_num; i++) {
+				printf("%2d. ", count);
+				fscanf(rank_f, "%s %d", r_name, &r_score);	
+				printf("%-10s       ---------------- %10d\n", r_name, r_score);
+				count++;
+			}
+			break;
+		case 4:
+			rank_f = fopen("./ranking/ranking_stg4.txt", "r");
+			rank_ft = fopen("./ranking/ranking_stg4.txt", "r");
+			printf("RANKING : stage 4\n");
+			while((c = getc(rank_ft)) != EOF) {
+				if (c=='\n') {
+					line++;
+				}
+			}
+			if (line < 5)
+				rank_num = line;
+
+			for(int i = 0; i < rank_num; i++) {
+				printf("%2d. ", count);
+				fscanf(rank_f, "%s %d", r_name, &r_score);	
+				printf("%-10s       ---------------- %10d\n", r_name, r_score);
+				count++;
+			}
+			break;
+		case 5:
+			rank_f = fopen("./ranking/ranking_stg5.txt", "r");
+			rank_ft = fopen("./ranking/ranking_stg5.txt", "r");
+			printf("RANKING : stage 5\n");
+			while((c = getc(rank_ft)) != EOF) {
+				if (c=='\n') {
+					line++;
+				}
+			}
+			if (line < 5)
+				rank_num = line;
+
+			for(int i = 0; i < rank_num; i++) {
+				printf("%2d. ", count);
+				fscanf(rank_f, "%s %d", r_name, &r_score);	
+				printf("%-10s       ---------------- %10d\n", r_name, r_score);
+				count++;
+			}
+			break;
+	}
+
+
+	
+
+	fclose(rank_f);
+	return 0;
+}
+
+
+int rank_stg1(void) {
+	int r_score, line = 0, tmp = 0;
+	char c, r_name[11];
+	FILE *rank_f1, *rank_n1, *rank_l1;
+	rank_n1 = fopen("./ranking/ranking_stg1_n.txt", "w");
+	rank_f1 = fopen("./ranking/ranking_stg1.txt", "r");
+	rank_l1 = fopen("./ranking/ranking_stg1.txt", "r");
+
+	while ((c = getc(rank_l1)) != EOF) {
+		if (c == '\n')
+			line ++;
+	}
+	fclose(rank_l1);
+
+	for(int r = 1; r <= line; r++) {
+		fscanf(rank_f1, "%s %d", r_name, &r_score);
+		if (r_score < move_stg1) {
+			fprintf(rank_n1, "%s %d\n", r_name, r_score);
+			tmp = r_score;
+		} else {
+			if (tmp <= move_stg1 && move_stg1 < r_score) {
+				fprintf(rank_n1, "%s %d\n", name, move_stg1);
+				fprintf(rank_n1, "%s %d\n", r_name, r_score);
+				tmp = r_score;
+			} else {
+				fprintf(rank_n1, "%s %d\n", r_name, r_score);
+				tmp = r_score;
 			}
 		}
-	}
-}
-void moveplayer(int xplus, int yplus, int reload)
-{
-	if (!reload)
-	{
-		gotoxy(PLAYER_PRINT_X, PLAYER_PRINT_Y);
-		printf(" ");
-	}
-	
-	map[playerY][playerX] = '.';
-	playerX += xplus;
-	playerY += yplus;
-
-	if (!reload)
-	{
-		gotoxy(PLAYER_PRINT_X, PLAYER_PRINT_Y);
-		printf("@");
-	}
-
-	map[playerY][playerX] = '@';
-
-	record[stage - 1]++;
-}
-void movePlayerBox(int xplus, int yplus, int reload)
-{
-	if (!reload)
-	{
-		gotoxy(PLAYER_PRINT_X, PLAYER_PRINT_Y);
-		printf(" ");
-	}
-
-	map[playerY][playerX] = '.';
-
-	playerX += xplus;
-	playerY += yplus;
-
-	if (!reload)
-	{
-		gotoxy(PLAYER_PRINT_X, PLAYER_PRINT_Y);
-		printf("@");
-	}
-
-	map[playerY][playerX] = '@';
-
-	if (!reload)
-	{
-		gotoxy(PLAYER_PRINT_X + 2 * xplus, PLAYER_PRINT_Y + yplus);
-		printf("$");
-	}
-	map[playerY + yplus][playerX + xplus] = '$';
-
-	record[stage - 1]++;
-}
-int move(int xplus, int yplus, int reload)
-{
-	int bef_playerX = playerX, bef_playerY = playerY;
-
-	if (playerX + xplus >= 0 && playerY + yplus >= 0 && playerX + xplus < mapX && playerY + yplus < mapY)
-	{
-		if (map[playerY + yplus][playerX + xplus] == '.')	moveplayer(xplus, yplus, reload);
-		else if (map[playerY + yplus][playerX + xplus] == '$' && map[playerY + 2 * yplus][playerX + 2 * xplus] == '.'
-			&& playerX + 2 * xplus >= 0 && playerY + 2 * yplus >= 0 && playerX + 2 * xplus < mapX && playerY + 2 * yplus < mapY)	movePlayerBox(xplus, yplus, reload);
-		else if (map[playerY + yplus][playerX + xplus] == '$' && map[playerY + 2 * yplus][playerX + 2 * xplus] == 'O'
-			&& playerX + 2 * xplus >= 0 && playerY + 2 * yplus >= 0 && playerX + 2 * xplus < mapX && playerY + 2 * yplus < mapY)	movePlayerBox(xplus, yplus, reload);
-		else if (map[playerY + yplus][playerX + xplus] == 'O')	moveplayer(xplus, yplus, reload);
-	}
-
-	if (bef_playerX != playerX || bef_playerY != playerY)	return 1;
-	else return 0;
-}
-void loadMove(int repeat, int reload)
-{
-	record[stage - 1] = 0;
-	for (int i = 0; i < repeat; i++)
-	{
-		switch (logger[stage - 1][i])
-		{
-			//left
-		case 'h':	case 'H':
-			move(-1, 0, reload);
-			break;
-
-			//down
-		case 'j':	case 'J':
-			move(0, 1, reload);
-			break;
-
-			//up
-		case 'k':	case 'K':
-			move(0, -1, reload);
-			break;
-
-			//right
-		case 'l':	case 'L':
-			move(1, 0, reload);
-			break;
+		if (r == line && tmp < move_stg1) {
+			fprintf(rank_n1, "%s %d\n", name, move_stg1);
 		}
 	}
-	mapPrinter();
-	goalPrinter();
-}
-int success(int stage)
-{
-	int cnt = 0;
-	for (int i = 0; i < mapGoalCnt; i++)
-	{
-		if (map[mapGoal[i][1]][mapGoal[i][0]] == '$')	cnt++;
+	if (tmp == 0) {
+		fprintf(rank_n1, "%s %d\n", name, move_stg1);
 	}
-
-	if (cnt == mapGoalCnt)	return 1;
-	else return 0;
-}
-void inputRank(void)
-{
-	FILE* rank = fopen("rank.txt", "a");
-	fprintf(rank, "%s ", name);
-
-	for (int i = 0; i < STAGE_NUM; i++)	printf("%d ", record[i]);
-	printf("\n");
-
-	fclose(rank);
-}
-void sort(int sortStage)
-{
-	int maxAdd = 0;
-
-	for (int i = 0; i < rankCnt; i++)
-	{	
-		maxAdd = i;
-		for (int j = i; j < rankCnt; j++)
-		{
-			if (rankArr[maxAdd][sortStage] < rankArr[j][sortStage])	maxAdd = j;
-		}
-		swapRankArrAdd(i, maxAdd);
-	}
-}
-void swapRankArrAdd(int a, int b)
-{
-	int temp[STAGE_NUM + 1];
-	char tmpname[STR_MAX];
+	fclose(rank_f1);
+	fclose(rank_n1);
 	
-	for (int i = 0; i < STAGE_NUM + 1; i++)
-	{
-		temp[i] = rankArr[a][i];
-		rankArr[a][i] = rankArr[b][i];
-		rankArr[b][i] = temp[i];
+	system("rm ./ranking/ranking_stg1.txt");
+	system("mv ./ranking/ranking_stg1_n.txt ./ranking/ranking_stg1.txt");
+	return 0;
+}
 
-		strcpy(tmpname, nameArr[a]);
-		strcpy(nameArr[a], nameArr[b]);
-		strcpy(nameArr[b], tmpname);
+
+
+int rank_stg2(void) {
+	int r_score, line = 0, tmp = 0;
+	char c, r_name[11];
+	FILE *rank_f2, *rank_n2, *rank_l2;
+	rank_n2 = fopen("./ranking/ranking_stg2_n.txt", "w");
+	rank_f2 = fopen("./ranking/ranking_stg2.txt", "r");
+	rank_l2 = fopen("./ranking/ranking_stg2.txt", "r");
+
+	while ((c = getc(rank_l2)) != EOF) {
+		if (c == '\n')
+			line ++;
 	}
+	fclose(rank_l2);
+
+	for(int r = 1; r <= line; r++) {
+		fscanf(rank_f2, "%s %d", r_name, &r_score);
+		if (r_score < move_stg2) {
+			fprintf(rank_n2, "%s %d\n", r_name, r_score);
+			tmp = r_score;
+		} else {
+			if (tmp <= move_stg2 && move_stg2 < r_score) {
+				fprintf(rank_n2, "%s %d\n", name, move_stg2);
+				fprintf(rank_n2, "%s %d\n", r_name, r_score);
+				tmp = r_score;
+			} else {
+				fprintf(rank_n2, "%s %d\n", r_name, r_score);
+				tmp = r_score;
+			}
+		}
+		if (r == line && tmp < move_stg2) {
+			fprintf(rank_n2, "%s %d\n", name, move_stg2);
+		}
+	}
+	if (tmp == 0) {
+		fprintf(rank_n2, "%s %d\n", name, move_stg2);
+	}
+	fclose(rank_f2);
+	fclose(rank_n2);
+	
+	system("rm ./ranking/ranking_stg2.txt");
+	system("mv ./ranking/ranking_stg2_n.txt ./ranking/ranking_stg2.txt");
+	return 0;
+}
+
+
+
+int rank_stg3(void) {
+	int r_score, line = 0, tmp = 0;
+	char c, r_name[11];
+	FILE *rank_f3, *rank_n3, *rank_l3;
+	rank_n3 = fopen("./ranking/ranking_stg3_n.txt", "w");
+	rank_f3 = fopen("./ranking/ranking_stg3.txt", "r");
+	rank_l3 = fopen("./ranking/ranking_stg3.txt", "r");
+
+	while ((c = getc(rank_l3)) != EOF) {
+		if (c == '\n')
+			line ++;
+	}
+	fclose(rank_l3);
+
+	for(int r = 1; r <= line; r++) {
+		fscanf(rank_f3, "%s %d", r_name, &r_score);
+		if (r_score < move_stg3) {
+			fprintf(rank_n3, "%s %d\n", r_name, r_score);
+			tmp = r_score;
+		} else {
+			if (tmp <= move_stg3 && move_stg3 < r_score) {
+				fprintf(rank_n3, "%s %d\n", name, move_stg3);
+				fprintf(rank_n3, "%s %d\n", r_name, r_score);
+				tmp = r_score;
+			} else {
+				fprintf(rank_n3, "%s %d\n", r_name, r_score);
+				tmp = r_score;
+			}
+		}
+		if (r == line && tmp < move_stg3) {
+			fprintf(rank_n3, "%s %d\n", name, move_stg3);
+		}
+	}
+	if (tmp == 0) {
+		fprintf(rank_n3, "%s %d\n", name, move_stg3);
+	}
+	fclose(rank_f3);
+	fclose(rank_n3);
+	
+	system("rm ./ranking/ranking_stg3.txt");
+	system("mv ./ranking/ranking_stg3_n.txt ./ranking/ranking_stg3.txt");
+	return 0;
+}
+
+
+
+int rank_stg4(void) {
+	int r_score, line = 0, tmp = 0;
+	char c, r_name[11];
+	FILE *rank_f4, *rank_n4, *rank_l4;
+	rank_n4 = fopen("./ranking/ranking_stg4_n.txt", "w");
+	rank_f4 = fopen("./ranking/ranking_stg4.txt", "r");
+	rank_l4 = fopen("./ranking/ranking_stg4.txt", "r");
+
+	while ((c = getc(rank_l4)) != EOF) {
+		if (c == '\n')
+			line ++;
+	}
+	fclose(rank_l4);
+
+	for(int r = 1; r <= line; r++) {
+		fscanf(rank_f4, "%s %d", r_name, &r_score);
+		if (r_score < move_stg4) {
+			fprintf(rank_n4, "%s %d\n", r_name, r_score);
+			tmp = r_score;
+		} else {
+			if (tmp <= move_stg4 && move_stg4 < r_score) {
+				fprintf(rank_n4, "%s %d\n", name, move_stg4);
+				fprintf(rank_n4, "%s %d\n", r_name, r_score);
+				tmp = r_score;
+			} else {
+				fprintf(rank_n4, "%s %d\n", r_name, r_score);
+				tmp = r_score;
+			}
+		}
+		if (r == line && tmp < move_stg4) {
+			fprintf(rank_n4, "%s %d\n", name, move_stg4);
+		}
+	}
+	if (tmp == 0) {
+		fprintf(rank_n4, "%s %d\n", name, move_stg4);
+	}
+	fclose(rank_f4);
+	fclose(rank_n4);
+	
+	system("rm ./ranking/ranking_stg4.txt");
+	system("mv ./ranking/ranking_stg4_n.txt ./ranking/ranking_stg4.txt");
+	return 0;
+}
+
+
+
+int rank_stg5(void) {
+	int r_score, line = 0, tmp = 0;
+	char c, r_name[11];
+	FILE *rank_f5, *rank_n5, *rank_l5;
+	rank_n5 = fopen("./ranking/ranking_stg5_n.txt", "w");
+	rank_f5 = fopen("./ranking/ranking_stg5.txt", "r");
+	rank_l5 = fopen("./ranking/ranking_stg5.txt", "r");
+
+	while ((c = getc(rank_l5)) != EOF) {
+		if (c == '\n')
+			line ++;
+	}
+	fclose(rank_l5);
+
+	for(int r = 1; r <= line; r++) {
+		fscanf(rank_f5, "%s %d", r_name, &r_score);
+		if (r_score < move_stg5) {
+			fprintf(rank_n5, "%s %d\n", r_name, r_score);
+			tmp = r_score;
+		} else {
+			if (tmp <= move_stg5 && move_stg5 < r_score) {
+				fprintf(rank_n5, "%s %d\n", name, move_stg5);
+				fprintf(rank_n5, "%s %d\n", r_name, r_score);
+				tmp = r_score;
+			} else {
+				fprintf(rank_n5, "%s %d\n", r_name, r_score);
+				tmp = r_score;
+			}
+		}
+		if (r == line && tmp < move_stg5) {
+			fprintf(rank_n5, "%s %d\n", name, move_stg5);
+		}
+	}
+	if (tmp == 0) {
+		fprintf(rank_n5, "%s %d\n", name, move_stg5);
+	}
+	fclose(rank_f5);
+	fclose(rank_n5);
+	
+	system("rm ./ranking/ranking_stg5.txt");
+	system("mv ./ranking/ranking_stg5_n.txt ./ranking/ranking_stg5.txt");
+	return 0;
+}
+
+void display_help(void) {
+	system("clear");
+	printf("<Manual>\nh : left, j : down, k : up, l : right\nu : undo\nr : replay\nn : new\ne : exit\ns : save\nf : file load\nd : display help\nt : top\n\n\n");
+	return;
 }
